@@ -1,0 +1,1 @@
+* * * * * php path/to/index.php >/dev/null 2>&1
