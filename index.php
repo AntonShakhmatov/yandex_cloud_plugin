@@ -21,8 +21,8 @@ class Plugin_Ya_cloud_p0e1fb2 extends \Plugin
     protected function start()
     {
         require $this->path('YandexCloud.php');
-        $key_cloud = 'YCAJESKk8_jFs5VEULY8RFfqq';
-        $secret_key = 'YCPbDGhg37i9a2eFlp8Zmg9WSgduTcm1flHMINQy';
+        $key_cloud = '';
+        $secret_key = '';
         $s3 = new S3Client([
             'version' => 'latest',
             'endpoint' => 'https://storage.yandexcloud.net',

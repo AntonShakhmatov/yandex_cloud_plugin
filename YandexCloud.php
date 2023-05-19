@@ -13,27 +13,89 @@ class Yandex_Cloud
     {
         $this->s3 = $s3;
     }
-    public function sendToStorage(string $dir): void
+    public function sendToStorage(string $dir, $prefix = ''): void
     {
-        $files = scandir($dir);
-        foreach ($files as $file) {
-            if (in_array($file, array(".", ".."))) {
+        if (!defined('IMAGETYPE_SVG')) {
+            define('IMAGETYPE_SVG', 13);
+        }
+        $folders = scandir($dir);
+        foreach ($folders as $folder) {
+            if (in_array($folder, array(".", ".."))) {
                 continue;
             }
-            $filePath = $dir . '/' . $file;
-            if (is_dir($filePath)) {
-                $this->sendToStorage($filePath);
+            $folderPath = $dir . '/' . $folder;
+            if (is_dir($folderPath)) {
+                $newPrefix = $prefix . '/' . $folder;
+                $this->sendToStorage($folderPath, $newPrefix);
             } else {
-                $folderName = $dir;
+                $type = exif_imagetype($folderPath);
+                if (!in_array($type, [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_GIF, IMAGETYPE_SVG, IMAGETYPE_BMP, IMAGETYPE_WEBP, IMAGETYPE_ICO])) {
+                    continue; // skip non-image files
+                }
+                $image = null;
+                $resizedImage = null;
+                $tempFile = '';
                 try {
-                    $result = $this->s3->putObject([
-                        'Bucket' => 'astregoimagestorage',
-                        'Key' => $folderName . '/' . $file,
-                        'SourceFile' => $filePath,
+                    switch ($type) {
+                        case IMAGETYPE_JPEG:
+                            list($width, $height) = getimagesize($folderPath);
+                            $image = imagecreatefromjpeg($folderPath);
+                            break;
+                        case IMAGETYPE_PNG:
+                            $image = imagecreatefrompng($folderPath);
+                            $width = imagesx($image);
+                            $height = imagesy($image);
+                            break;
+                        case IMAGETYPE_GIF:
+                            $image = imagecreatefromgif($folderPath);
+                            $width = imagesx($image);
+                            $height = imagesy($image);
+                            break;
+                        case IMAGETYPE_SVG:
+                            $this->s3->putObject([
+                                'Bucket' => '',
+                                'Key' => 'files/images' . $prefix . '/' . $folder,
+                                'ContentType' => 'image/svg+xml',
+                                'Body' => file_get_contents($folderPath),
+                                'ACL' => 'public-read',
+                            ]);
+                            continue 2; // skip to next iteration of loop
+                    }
+                    $newWidth = $width * 0.9;
+                    $newHeight = $height * 0.9;
+                    $resizedImage = imagecreatetruecolor($newWidth, $newHeight);
+                    imagecopyresized($resizedImage, $image, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
+                    $tempFile = tempnam(sys_get_temp_dir(), '');
+                    switch ($type) {
+                        case IMAGETYPE_JPEG:
+                            imagejpeg($resizedImage, $tempFile, 75);
+                            break;
+                        case IMAGETYPE_PNG:
+                            imagepng($resizedImage, $tempFile, 1);
+                            break;
+                        case IMAGETYPE_GIF:
+                            imagegif($resizedImage, $tempFile);
+                            break;
+                    }
+                    $this->s3->putObject([
+                        'Bucket' => '',
+                        'Key' => 'files/images' . $prefix . '/' . $folder,
+                        'ContentType' => $type,
+                        'Body' => file_get_contents($tempFile),
                         'ACL' => 'public-read',
                     ]);
-                } catch (Aws\S3\Exception\S3Exception$e) {
+                } catch (Exception $e) {
                     echo "There was an error uploading the file.\n . {$e}";
+                } finally {
+                    if ($image) {
+                        imagedestroy($image);
+                    }
+                    if ($resizedImage) {
+                        imagedestroy($resizedImage);
+                    }
+                    if ($tempFile) {
+                        unlink($tempFile);
+                    }
                 }
             }
         }
